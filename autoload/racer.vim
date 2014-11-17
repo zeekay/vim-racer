@@ -1,68 +1,145 @@
+" Vim plugin for Racer
+" (by Phil Dawes)
+"
+" 1. Edit the variables below (or override in .vimrc)
+" 2. copy this file into .vim/plugin/
+" 3. - now in insert mode do 'C-x C-o' to autocomplete the thing at the cursor
+"    - in normal mode do 'gd' to go to definition
+"
+" (This plugin is best used with the 'hidden' option enabled so that switching buffers doesn't force you to save)
+
 if exists('g:loaded_racer')
 	finish
 end
 let g:loaded_racer = 1
 
-fu! s:racer(what)
-	let fname = expand('%:p')
-	let tmpfile = tempname()
-	let buf = getline(1, '$')
-	call writefile(buf, tmpfile, "b")
+if !exists('g:racer_cmd')
+    let g:racer_cmd = "/home/pld/src/rust/racer/bin/racer"
+endif
 
-	let cmd = printf('racer %s %d %d %s', a:what, line('.'), col('.')- 1,  tmpfile)
-	let lines = split(system(cmd), "\n")
+if !exists('$RUST_SRC_PATH')
+    let $RUST_SRC_PATH="/usr/local/src/rust/src"
+endif
 
-	call delete(tmpfile)
+if !exists('g:racer_experimental_completer')
+    let g:racer_experimental_completer = 0
+endif
 
-	let prefix = 0
-	let matches = []
+if !exists('g:racer_insert_paren')
+    let g:racer_insert_paren = 1
+endif
 
-	if v:shell_error == 0
-		for line in lines
-			if line =~ "^PREFIX "
-				let tok = split(strpart(line, 7), ",", 1)
-				let prefix = tok[0]
-			elseif line =~ "^MATCH "
-				let tok = split(strpart(line, 6), ",", 1)
-				let m = {}
-				let m['word'] = tok[0]
-				let m['line'] = tok[1]
-				let m['col'] = tok[2]
-				if tok[3] == tmpfile
-					let m['file'] = fname
-				else
-					let m['file'] = tok[3]
-				endif
-				if len(tok) > 4
-					let m['kind'] = tok[4]
-				endif
-				if len(tok) > 5
-					let m['menu'] = tok[5]
-				endif
-				let matches = matches + [m]
-			endif
-		endfor
-	else
-		"echom 'shell error:'. v:shell_error
-	endif
+function! racer#GetPrefixCol()
+    :w! %.racertmp
+    let col = col(".")-1
+    let b:racer_col = col
+    let fname = expand("%:p")
+    let tmpfname=fname.".racertmp"
+    let cmd = g:racer_cmd." prefix ".line(".")." ".col." ".tmpfname
+    let res = system(cmd)
+    let prefixline = split(res, "\\n")[0]
+    let startcol = split(prefixline[7:], ",")[0]
+    return startcol
+endfunction
 
-	return [prefix, matches]
-endf
+function! racer#GetExpCompletions()
+    let col = b:racer_col      " use the column from the previous racer#GetPrefixCol() call, since vim ammends it afterwards
+    let fname = expand("%:p")
+    let tmpfname=fname.".racertmp"
+    let cmd = g:racer_cmd." complete ".line(".")." ".col." ".tmpfname
+    if has('python')
+    python << EOF
+from subprocess import check_output
+import vim
 
-fu! racer#Complete(findstart, base)
-	if a:findstart
-		let s:racer_completions = s:racer("complete")
-		return s:racer_completions[0]
-	else
-		return s:racer_completions[1]
-	end
-endf
+typeMap = { 'Struct' : 's', 'Module' : 'M', 'Function' : 'f',
+            'Crate' : 'C', 'Let' : 'v', 'StructField' : 'm',
+            'Impl' : 'i', 'Enum' : 'e', 'EnumVariant' : 'E',
+            'Type' : 't', 'FnArg' : 'v', 'Trait' : 'T'
+            }
+lines = [l[6:] for l in check_output(vim.eval('cmd').split()).splitlines() if l.startswith('MATCH')]
+candidates = []
+for line in lines:
+    completions = line.split(',',5)
+    kind = typeMap[completions[4]]
+    completion = {'kind' : kind, 'word' : completions[0]}
+    if kind == 'f': #function
+        completion['abbr'] = completions[5].replace('pub ','').replace('fn ','').rstrip('{')
+        if int(vim.eval('g:racer_insert_paren')):
+            completion['word'] += '('
+        completion['info'] = completions[5]
+    elif kind == 's' : #struct
+        completion['abbr'] = completions[5].replace('pub ','').replace('struct ','').rstrip('{')
+    candidates.append(completion)
 
+vim.command("return %s" % candidates)
 
-fu! racer#JumpToDefinition()
-	let matches = s:racer('find-definition')[1]
-	if len(matches) > 0
-		let m = matches[0]
-		lexpr printf('%s:%s:%s %s', m['file'], m['line'], m['col'], m['word'])
-	endif
-endf
+EOF
+    else
+        echoerr("Error, experimental racer completion requires vim compiled
+                    \ with python 2.")
+    endif
+    call delete(tmpfname)
+endfunction
+
+function! racer#GetCompletions()
+    let col = b:racer_col      " use the column from the previous racer#GetPrefixCol() call, since vim ammends it afterwards
+    let fname = expand("%:p")
+    let tmpfname=fname.".racertmp"
+    let cmd = g:racer_cmd." complete ".line(".")." ".col." ".tmpfname
+    let res = system(cmd)
+    let lines = split(res, "\\n")
+    let out = []
+    for line in lines
+       if line =~ "^MATCH"
+           let completion = split(line[6:], ",")[0]
+           let out = add(out, completion)
+       endif
+    endfor
+    call delete(tmpfname)
+    return out
+endfunction
+
+function! racer#GoToDefinition()
+    :w! %.racertmp
+    let col = col(".")-1
+    let b:racer_col = col
+    let fname = expand("%:p")
+    let tmpfname=fname.".racertmp"
+    let cmd = g:racer_cmd." find-definition ".line(".")." ".col." ".tmpfname
+    let res = system(cmd)
+    let lines = split(res, "\\n")
+    for line in lines
+        if line =~ "^MATCH"
+             let linenum = split(line[6:], ",")[1]
+             let colnum = split(line[6:], ",")[2]
+             let fname = split(line[6:], ",")[3]
+             if fname =~ ".racertmp$"
+                 let fname = fname[:-10]
+             endif
+             call racer#JumpToLocation(fname, linenum, colnum)
+             break
+        endif
+    endfor
+    call delete(tmpfname)
+endfunction
+
+function! racer#JumpToLocation(filename, linenum, colnum)
+    if(a:filename != '')
+        if a:filename != bufname('%')
+            exec 'e ' . fnameescape(a:filename)
+        endif
+        call cursor(a:linenum, a:colnum+1)
+    endif
+endfunction
+
+function! racer#Complete(findstart, base)
+    if a:findstart
+        return racer#GetPrefixCol()
+    else
+        if g:racer_experimental_completer == 1
+            return racer#GetExpCompletions()
+        else
+            return racer#GetCompletions()
+    endif
+endfunction

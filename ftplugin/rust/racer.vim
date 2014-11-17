@@ -1,2 +1,2 @@
 setlocal omnifunc=racer#Complete
-nnoremap <buffer> gd :call racer#JumpToDefinition()<CR>
+nnoremap gd :call racer#GoToDefinition()<cr>
