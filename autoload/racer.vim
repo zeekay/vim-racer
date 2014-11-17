@@ -14,7 +14,7 @@ end
 let g:loaded_racer = 1
 
 if !exists('g:racer_cmd')
-    let g:racer_cmd = "/home/pld/src/rust/racer/bin/racer"
+    let g:racer_cmd = "racer"
 endif
 
 if !exists('$RUST_SRC_PATH')
@@ -22,7 +22,7 @@ if !exists('$RUST_SRC_PATH')
 endif
 
 if !exists('g:racer_experimental_completer')
-    let g:racer_experimental_completer = 0
+    let g:racer_experimental_completer = 1
 endif
 
 if !exists('g:racer_insert_paren')
