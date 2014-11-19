@@ -1,17 +1,10 @@
-" Vim plugin for Racer
-" (by Phil Dawes)
-"
-" 1. Edit the variables below (or override in .vimrc)
-" 2. copy this file into .vim/plugin/
-" 3. - now in insert mode do 'C-x C-o' to autocomplete the thing at the cursor
-"    - in normal mode do 'gd' to go to definition
-"
-" (This plugin is best used with the 'hidden' option enabled so that switching buffers doesn't force you to save)
-
 if exists('g:loaded_racer')
 	finish
 end
 let g:loaded_racer = 1
+
+" Borrowed (with minor modifications) from:
+" https://github.com/phildawes/racer/blob/master/editors/racer.vim
 
 if !exists('g:racer_cmd')
     let g:racer_cmd = "racer"
@@ -57,7 +50,10 @@ typeMap = { 'Struct' : 's', 'Module' : 'M', 'Function' : 'f',
             'Impl' : 'i', 'Enum' : 'e', 'EnumVariant' : 'E',
             'Type' : 't', 'FnArg' : 'v', 'Trait' : 'T'
             }
-lines = [l[6:] for l in check_output(vim.eval('cmd').split()).splitlines() if l.startswith('MATCH')]
+try:
+    lines = [l[6:] for l in check_output(vim.eval('cmd').split()).splitlines() if l.startswith('MATCH')]
+except:
+    lines = []
 candidates = []
 for line in lines:
     completions = line.split(',',5)
@@ -137,9 +133,16 @@ function! racer#Complete(findstart, base)
     if a:findstart
         return racer#GetPrefixCol()
     else
-        if g:racer_experimental_completer == 1
-            return racer#GetExpCompletions()
-        else
-            return racer#GetCompletions()
+        let completions = []
+        try
+            if g:racer_experimental_completer == 1
+                let completions = racer#GetExpCompletions()
+            else
+                let completions = racer#GetCompletions()
+            endif
+        catch
+        endtry
+        redraw!
+        return completions
     endif
 endfunction
